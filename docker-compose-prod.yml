@@ -3,6 +3,8 @@ services:
     build:
       context: ./app
       dockerfile: Dockerfile
+      args:
+        - GOOGLE_CREDENTIALS=${GOOGLE_CREDENTIALS}
     container_name: golang
     networks:
       - db

@@ -69,11 +69,11 @@ WORKDIR /app
 
 COPY . .
 
-ENV GOOGLE_CREDENTIALS=$GOOGLE_CREDENTIALS
+ARG GOOGLE_CREDENTIALS
 
 RUN env
 
-RUN echo "$GOOGLE_CREDENTIALS" > service-account-key.json
+RUN echo "${GOOGLE_CREDENTIALS}" > service-account-key.json
 
 EXPOSE 3333
 
