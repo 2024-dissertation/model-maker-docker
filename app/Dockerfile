@@ -77,5 +77,5 @@ RUN echo "${GOOGLE_CREDENTIALS}" > service-account-key.json
 
 EXPOSE 3333
 
-# CMD ["make"]
-CMD ["tail", "-f", "/dev/null"]
+CMD ["make"]
+# CMD ["tail", "-f", "/dev/null"]
