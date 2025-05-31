@@ -2,12 +2,14 @@ package mocks
 
 import (
 	models "github.com/Soup666/modelmaker/model"
+	"github.com/Soup666/modelmaker/services"
 	"github.com/stretchr/testify/mock"
 )
 
 // MockTaskService is a mock implementation of TaskService.
 type MockTaskService struct {
 	mock.Mock
+	jobQueue chan services.TaskJob
 }
 
 func (m *MockTaskService) CreateTask(task *models.Task) error {
@@ -121,4 +123,18 @@ func (m *MockTaskService) AddLog(taskID uint, log string) error {
 		return args.Get(0).(error)
 	}
 	return nil
+}
+
+func (m *MockTaskService) EnqueueJob(job services.TaskJob) bool {
+	m.jobQueue <- job
+	m.Called(job)
+	return true
+}
+
+func (m *MockTaskService) StartWorker() {
+	m.Called()
+}
+
+func (m *MockTaskService) GetJobQueue() chan services.TaskJob {
+	return m.jobQueue
 }

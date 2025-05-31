@@ -19,6 +19,7 @@ type TaskServiceImpl struct {
 	appFileService      AppFileService
 	chatRepository      repositories.ChatRepository
 	notificationService NotificationService
+	jobQueue            chan TaskJob
 }
 
 type saveOutput struct {
@@ -30,8 +31,19 @@ func (so *saveOutput) Write(p []byte) (n int, err error) {
 	return os.Stdout.Write(p)
 }
 
-func NewTaskService(taskRepo repositories.TaskRepository, appFileService AppFileService, chatRepository repositories.ChatRepository, notificationService NotificationService) TaskService {
-	return &TaskServiceImpl{taskRepo: taskRepo, appFileService: appFileService, chatRepository: chatRepository, notificationService: notificationService}
+func NewTaskService(
+	taskRepo repositories.TaskRepository,
+	appFileService AppFileService,
+	chatRepository repositories.ChatRepository,
+	notificationService NotificationService,
+) TaskServiceImpl {
+	return TaskServiceImpl{
+		taskRepo:            taskRepo,
+		appFileService:      appFileService,
+		chatRepository:      chatRepository,
+		notificationService: notificationService,
+		jobQueue:            make(chan TaskJob, 100),
+	}
 }
 
 func (s *TaskServiceImpl) CreateTask(task *models.Task) error {
@@ -499,4 +511,32 @@ func (s *TaskServiceImpl) AddLog(taskID uint, log string) error {
 		return err
 	}
 	return nil
+}
+
+func (s *TaskServiceImpl) EnqueueJob(job TaskJob) bool {
+
+	select {
+	case s.jobQueue <- job:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *TaskServiceImpl) StartWorker() {
+	go func() {
+		for job := range s.jobQueue {
+			fmt.Printf("Processing job: %+v\n", job)
+
+			task, err := s.taskRepo.GetTaskByID(job.ID)
+			if err != nil {
+				continue
+			}
+			s.RunPhotogrammetryProcess(task)
+		}
+	}()
+}
+
+func (s *TaskServiceImpl) GetJobQueue() chan TaskJob {
+	return s.jobQueue
 }

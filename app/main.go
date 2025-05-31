@@ -56,11 +56,14 @@ func main() {
 	collectionsService := services.NewCollectionsService(collectionsRepo)
 	userAnalyticsService := services.NewUserAnalyticsService(userAnalyticsRepo)
 
+	// Initialise Job Queue
+	taskService.StartWorker()
+
 	authController := controller.NewAuthController(authService, userService)
-	taskController := controller.NewTaskController(taskService, appFileService, visionService)
+	taskController := controller.NewTaskController(&taskService, appFileService, visionService)
 	uploadController := controller.NewUploadController()
 	objectController := controller.NewObjectController()
-	visionController := controller.NewVisionController(visionService, taskRepo, taskService)
+	visionController := controller.NewVisionController(visionService, taskRepo, &taskService)
 	reportsController := controller.NewReportsController(reportsService)
 	collectionsController := controller.NewCollectionsController(collectionsService)
 	userAnalyticsController := controller.NewUserAnalyticsController(userAnalyticsService)

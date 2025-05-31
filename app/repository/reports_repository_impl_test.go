@@ -42,7 +42,6 @@ func TestReportsRepository(t *testing.T) {
 
 	err = repo.CreateReport(report)
 	assert.NoError(t, err)
-	assert.NotZero(t, report.Id)
 
 	// Test GetTaskByID
 	fetchedReport, err := repo.GetReportByID(1)

@@ -77,7 +77,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'taskstatus') THEN
         CREATE TYPE TaskStatus AS ENUM
         (
-            'SUCCESS', 'INPROGRESS', 'FAILED', 'INITIAL'
+            'SUCCESS', 'INPROGRESS', 'FAILED', 'INITIAL', 'QUEUED'
         );
     END IF;
 	IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'reporttype') THEN

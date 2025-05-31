@@ -5,6 +5,7 @@ import "database/sql/driver"
 type TaskStatus string
 
 const (
+	QUEUED     TaskStatus = "QUEUED"
 	SUCCESS    TaskStatus = "SUCCESS"
 	INPROGRESS TaskStatus = "INPROGRESS"
 	FAILED     TaskStatus = "FAILED"

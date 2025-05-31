@@ -23,10 +23,9 @@ run:
 	./"${BIN_FILE}"
 
 test:
-	@godotenv -f .env.test go test ./... -cover fmt
-
-test-cover:
 	echo "Running tests with coverage..."
+	@command -v tparse >/dev/null 2>&1 || go install github.com/mfridman/tparse@latest
+	@command -v go-cover-treemap >/dev/null 2>&1 || go install github.com/nikolaydubina/go-cover-treemap@latest
 	go test $(GO_TEST_FLAGS) -coverprofile=cp.out -coverpkg=$$(go list ./... | grep -v -e /bin -e /cmd -e /examples) ./... |\
 		tparse --follow -sort=elapsed -trimpath=auto -all
 	go tool cover -html=cp.out -o cover.html

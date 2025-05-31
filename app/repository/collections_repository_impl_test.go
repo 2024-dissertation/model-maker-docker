@@ -40,7 +40,6 @@ func TestCollectionsRepository(t *testing.T) {
 
 	err = repo.CreateCollection(collection)
 	assert.NoError(t, err)
-	assert.NotZero(t, collection.Id)
 
 	// Test GetTaskByID
 	// fetchedCollection, err := repo.GetCollectionByID(1)

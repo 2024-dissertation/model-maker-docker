@@ -7,7 +7,7 @@ import (
 )
 
 var CHAT_MESSAGE_JSON string = `{
-				"Id":0,
+				"ID":0,
 				"TaskId":0,
 				"Sender":"",
 				"Message":"",
@@ -16,7 +16,6 @@ var CHAT_MESSAGE_JSON string = `{
 
 type ChatMessage struct {
 	gorm.Model
-	Id        uint      `gorm:"primaryKey"`
 	TaskId    uint      `gorm:"not null"` // Foreign key
 	Sender    string    `gorm:"type:text;not null;check:sender IN ('USER','AI')"`
 	Message   string    `gorm:"type:text;not null"`
