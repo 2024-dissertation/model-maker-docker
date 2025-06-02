@@ -85,16 +85,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 # ------------------------------
 # Stage 3: Build Blender (minimal)
 # ------------------------------
-FROM ubuntu:22.04 AS blender_builder
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget xz-utils && \
-    rm -rf /var/lib/apt/lists/*
-
-RUN wget -q https://download.blender.org/release/Blender4.4/blender-4.4.0-linux-x64.tar.xz --no-check-certificate && \
-    mkdir -p /opt/blender && \
-    tar -xf blender-4.4.0-linux-x64.tar.xz -C /opt/blender --strip-components=1 && \
-    rm blender-4.4.0-linux-x64.tar.xz
+FROM linuxserver/blender:4.4.3 AS blender_builder
 
 # ------------------------------
 # Stage 4: Production Runtime
@@ -122,7 +113,8 @@ RUN apt-get install -y --no-install-recommends \
     libboost-program-options1.74.0 libboost-serialization1.74.0 \
     libopencv-core4.5d libopencv-imgproc4.5d libopencv-imgcodecs4.5d \
     libjpeg8 libpng16-16 libtiff5 libglu1-mesa libglew2.2 \
-    libglfw3 libgomp1 ca-certificates curl wget libboost-all-dev libopencv-dev && \
+    libglfw3 libgomp1 ca-certificates curl wget libboost-all-dev libopencv-dev \
+    xorg && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy OpenMVG/OpenMVS binaries and libraries
@@ -130,8 +122,8 @@ COPY --from=cv_builder /usr/local/bin/ /usr/local/bin/
 COPY --from=cv_builder /usr/local/lib/ /usr/local/lib/
 
 # Copy Blender (only essential parts)
-COPY --from=blender_builder /opt/blender/blender /usr/local/bin/blender
-COPY --from=blender_builder /opt/blender/4.4/ /opt/blender/4.4/
+COPY --from=blender_builder /blender /opt/blender
+ENV PATH="/opt/blender:$PATH"
 
 # Copy Go application
 COPY --from=go_builder /app/server /usr/local/bin/server
