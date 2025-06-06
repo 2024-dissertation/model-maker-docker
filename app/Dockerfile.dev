@@ -43,40 +43,49 @@ RUN git clone --branch develop --depth=1 https://github.com/cdcseacave/openMVS.g
 # ------------------------------
 # Stage 3: Build Blender (minimal)
 # ------------------------------
-FROM ubuntu:22.04 AS blender_builder
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget xz-utils && \
-    rm -rf /var/lib/apt/lists/*
-
-RUN wget -q https://download.blender.org/release/Blender4.4/blender-4.4.0-linux-x64.tar.xz --no-check-certificate && \
-    mkdir -p /opt/blender && \
-    tar -xf blender-4.4.0-linux-x64.tar.xz -C /opt/blender --strip-components=1 && \
-    rm blender-4.4.0-linux-x64.tar.xz
+FROM linuxserver/blender:4.4.3 AS blender_builder
 
 # -------------------------
 # Stage 4: Dev Environment
 # -------------------------
-FROM ubuntu:latest AS final
+FROM ubuntu:22.04 AS final
 
-RUN apt-get update && apt-get install -y wget xz-utils libcgal-qt5-dev \
-    libceres-dev libboost-all-dev libopencv-dev build-essential && \
-    wget https://download.blender.org/release/Blender4.4/blender-4.4.0-linux-x64.tar.xz && \
-    wget https://go.dev/dl/go1.23.8.linux-amd64.tar.gz && \
+ENV TZ=UTC
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+RUN sed -i'' 's/archive\.ubuntu\.com/us\.archive\.ubuntu\.com/' /etc/apt/sources.list
+
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser -s /bin/false appuser
+
+ENV DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Install only runtime dependencies
+# Seperate for cache issues
+RUN apt-get -y update 
+RUN apt-get install -y --no-install-recommends \
+    libcgal-qt5-dev libceres2 libboost-system1.74.0 libboost-filesystem1.74.0 \
+    build-essential \
+    libboost-program-options1.74.0 libboost-serialization1.74.0 \
+    libopencv-core4.5d libopencv-imgproc4.5d libopencv-imgcodecs4.5d \
+    libjpeg8 libpng16-16 libtiff5 libglu1-mesa libglew2.2 \
+    libglfw3 libgomp1 ca-certificates curl wget libboost-all-dev libopencv-dev \
+    xorg && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN wget https://go.dev/dl/go1.23.8.linux-amd64.tar.gz && \
     tar -C /usr/local -xzf go1.23.8.linux-amd64.tar.gz && \
     rm -rf go1.23.8.linux-amd64.tar.gz && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o server
-# RUN chmod +x ./server
 
 # Copy OpenMVG and OpenMVS builds from cv_builder
 COPY --from=cv_builder /openMVG_build/Linux-x86_64-RELEASE /usr/local/bin
 COPY --from=cv_builder /openMVS_build/bin /usr/local/bin
 
 # Copy Blender (only essential parts)
-COPY --from=blender_builder /opt/blender/blender /usr/local/bin/blender
-COPY --from=blender_builder /opt/blender/4.4/ /opt/blender/4.4/
+COPY --from=blender_builder /blender /opt/blender
+ENV PATH="/opt/blender:$PATH"
 
 ENV PATH="$PATH:/usr/local/go/bin:/root/go/bin"
 

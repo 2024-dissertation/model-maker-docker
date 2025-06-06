@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"mime/multipart"
 	"net/http"
@@ -23,10 +24,16 @@ type TaskController struct {
 	TaskService    services.TaskService
 	AppFileService services.AppFileService
 	VisionService  services.VisionService
+	StorageService services.StorageService
 }
 
-func NewTaskController(taskService services.TaskService, appFileService services.AppFileService, visionService services.VisionService) *TaskController {
-	return &TaskController{TaskService: taskService, AppFileService: appFileService, VisionService: visionService}
+func NewTaskController(taskService services.TaskService, appFileService services.AppFileService, visionService services.VisionService, storageService services.StorageService) *TaskController {
+	return &TaskController{
+		TaskService:    taskService,
+		AppFileService: appFileService,
+		VisionService:  visionService,
+		StorageService: storageService,
+	}
 }
 
 func (c *TaskController) GetUnarchivedTasks(ctx *gin.Context) {
@@ -136,7 +143,6 @@ func (c *TaskController) CreateTask(ctx *gin.Context) {
 // @Failure 500 {object} map[string]string
 // @Router /tasks/{taskID}/upload [post]
 func (c *TaskController) UploadFileToTask(ctx *gin.Context) {
-
 	// Get the Task ID from the route
 	taskIdParam := ctx.Param("taskID")
 	taskId, err := strconv.Atoi(taskIdParam)
@@ -164,13 +170,6 @@ func (c *TaskController) UploadFileToTask(ctx *gin.Context) {
 		return
 	}
 
-	// Define the upload folder
-	folderPath := fmt.Sprintf("uploads/%d", taskId)
-	if err := os.MkdirAll(folderPath, os.ModePerm); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload directory"})
-		return
-	}
-
 	var uploadedImages []model.AppFile
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -192,12 +191,9 @@ func (c *TaskController) UploadFileToTask(ctx *gin.Context) {
 				return
 			}
 
-			// Generate a unique filename
-			filename := fmt.Sprintf("%d-%d%s", taskId, index, fileExt)
-			savePath := filepath.Join(folderPath, filename)
-
-			// Save the file
-			if err := ctx.SaveUploadedFile(file, savePath); err != nil {
+			// Upload to object storage
+			url, err := c.StorageService.UploadFile(file, uint(taskId), "upload")
+			if err != nil {
 				ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to save file %s", file.Filename)})
 				hasError = true
 				return
@@ -205,8 +201,8 @@ func (c *TaskController) UploadFileToTask(ctx *gin.Context) {
 
 			// Save metadata to DB
 			image := model.AppFile{
-				Filename: filename,
-				Url:      fmt.Sprintf("/uploads/%d/%s", taskId, filename),
+				Filename: file.Filename,
+				Url:      url,
 				TaskId:   uint(taskId),
 				FileType: "upload",
 			}
@@ -232,9 +228,31 @@ func (c *TaskController) UploadFileToTask(ctx *gin.Context) {
 	tx.Commit()
 
 	go func() {
-		// Generate caption
-		result, err := c.VisionService.AnalyseImage(fmt.Sprintf("./uploads/%d/%s", taskId, uploadedImages[0].Filename), "")
+		// Get the first image URL from object storage
+		file, err := c.StorageService.GetFile(fmt.Sprintf("uploads/%d/%s", taskId, uploadedImages[0].Filename))
+		if err != nil {
+			log.Printf("Unable to get image for analysis: %v", err)
+			return
+		}
+		defer file.Close()
 
+		// Create a temporary file
+		tempFile, err := os.CreateTemp("", "analysis-*.jpg")
+		if err != nil {
+			log.Printf("Unable to create temp file: %v", err)
+			return
+		}
+		defer os.Remove(tempFile.Name())
+		defer tempFile.Close()
+
+		// Copy the file content
+		if _, err := io.Copy(tempFile, file); err != nil {
+			log.Printf("Unable to copy file content: %v", err)
+			return
+		}
+
+		// Generate caption
+		result, err := c.VisionService.AnalyseImage(tempFile.Name(), "")
 		if err != nil {
 			log.Printf("Unable to analyze the image: %v", err)
 			return
@@ -245,24 +263,7 @@ func (c *TaskController) UploadFileToTask(ctx *gin.Context) {
 		}
 	}()
 
-	go func() {
-		// Generate caption
-		result, err := c.VisionService.AnalyseImage(fmt.Sprintf("./uploads/%d/%s", taskId, uploadedImages[0].Filename), "categorize the model in this image, use one word only")
-
-		if err != nil {
-			log.Printf("Unable to analyze the image: %v", err)
-			return
-		}
-
-		if err := c.TaskService.UpdateMeta(&task, "ai-title", result); err != nil {
-			log.Printf("Failed to update task metadata: %v", err)
-		}
-	}()
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"message": "Files uploaded successfully",
-		"images":  uploadedImages,
-	})
+	ctx.JSON(http.StatusOK, gin.H{"message": "Files uploaded successfully", "images": uploadedImages})
 }
 
 // StartProcess handles the process of starting the photogrammetry process
@@ -375,7 +376,7 @@ func (c *TaskController) SendMessage(ctx *gin.Context) {
 			return
 		}
 
-		imagePath := fmt.Sprintf("./uploads/%d/%s", taskId, task.Images[0].Filename)
+		imagePath := fmt.Sprintf("uploads/%d/%s", taskId, task.Images[0].Filename)
 
 		if _, err := os.Stat(imagePath); os.IsNotExist(err) {
 			log.Printf("Image file does not exist: %v\n", err)

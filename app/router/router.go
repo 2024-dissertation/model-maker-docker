@@ -1,6 +1,9 @@
 package router
 
 import (
+	"fmt"
+	"io"
+
 	"github.com/Soup666/modelmaker/controller"
 	"github.com/Soup666/modelmaker/middleware"
 	"github.com/Soup666/modelmaker/services"
@@ -74,6 +77,30 @@ func NewRouter(
 
 	// Debug
 	authRequired.POST("/debug/notification", notificationController.SendMessage)
+	authRequired.POST("/debug/storage", func(c *gin.Context) {
+		file, err := c.FormFile("file")
+		if err != nil {
+			c.JSON(400, gin.H{"error": "No file provided"})
+			return
+		}
+		storageService := services.NewKatapultStorageService()
+		url, err := storageService.UploadFile(file, 1, "test")
+		if err != nil {
+			c.JSON(400, gin.H{"error": fmt.Sprintf("Failed to upload file: %v", err)})
+			return
+		}
+		c.JSON(200, gin.H{"status": "ok", "url": url})
+	})
+	authRequired.GET("/debug/storage", func(c *gin.Context) {
+		storageService := services.NewKatapultStorageService()
+		reader, err := storageService.GetFile("uploads/1/00006._c.png")
+		if err != nil {
+			c.JSON(400, gin.H{"error": fmt.Sprintf("Failed to get file: %v", err)})
+			return
+		}
+		io.Copy(c.Writer, reader)
+		reader.Close()
+	})
 
 	// Unauthenticated routes
 	r.POST("/uploads", uploadController.UploadFile)

@@ -45,24 +45,26 @@ func main() {
 	chatRepo := repositories.NewChatRepository(db.DB)
 	userAnalyticsRepo := repositories.NewUserAnalyticsRepository(db.DB)
 
-	// Set up the authentication service
+	// Set up the services
 	authService := services.NewAuthService(authClient, db.DB, userRepo)
 	userService := services.NewUserService(userRepo)
 	notificationService := services.NewNotificationService()
 	appFileService := services.NewAppFileServiceFile(appFileRepo)
-	taskService := services.NewTaskService(taskRepo, appFileService, chatRepo, notificationService)
+	storageService := services.NewKatapultStorageService()
+	taskService := services.NewTaskService(taskRepo, appFileService, chatRepo, notificationService, storageService)
 	visionService := services.NewVisionService()
 	reportsService := services.NewReportsService(reportsRepo)
 	collectionsService := services.NewCollectionsService(collectionsRepo)
 	userAnalyticsService := services.NewUserAnalyticsService(userAnalyticsRepo)
 
-	// Initialise Job Queue
+	// Initialize Job Queue
 	taskService.StartWorker()
 
+	// Set up the controllers
 	authController := controller.NewAuthController(authService, userService)
-	taskController := controller.NewTaskController(&taskService, appFileService, visionService)
-	uploadController := controller.NewUploadController()
-	objectController := controller.NewObjectController()
+	uploadController := controller.NewUploadController(storageService)
+	objectController := controller.NewObjectController(storageService)
+	taskController := controller.NewTaskController(&taskService, appFileService, visionService, storageService)
 	visionController := controller.NewVisionController(visionService, taskRepo, &taskService)
 	reportsController := controller.NewReportsController(reportsService)
 	collectionsController := controller.NewCollectionsController(collectionsService)
@@ -70,11 +72,27 @@ func main() {
 	notificationController := controller.NewNotificationController(notificationService)
 
 	// Set up the HTTP router
-	r := router.NewRouter(authController, taskController, uploadController, objectController, visionController, authService, reportsController, collectionsController, userAnalyticsController, notificationController)
+	r := router.NewRouter(
+		authController,
+		taskController,
+		uploadController,
+		objectController,
+		visionController,
+		authService,
+		reportsController,
+		collectionsController,
+		userAnalyticsController,
+		notificationController,
+	)
 
 	// Start the server
-	if r.Run(":"+os.Getenv("PORT")) != nil {
-		panic("[Error] failed to start Gin server due to: " + err.Error())
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3333"
 	}
 
+	log.Printf("Starting server on port %s...", port)
+	if err := r.Run(":" + port); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }

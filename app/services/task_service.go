@@ -18,7 +18,7 @@ type TaskService interface {
 	UnarchiveTask(taskID uint) (*model.Task, error)
 	SaveTask(task *model.Task) error
 	FailTask(task *model.Task, message string) error
-	RunPhotogrammetryProcess(task *model.Task) error
+	// RunPhotogrammetryProcess(task *model.Task) error
 	UpdateMeta(task *model.Task, key string, value interface{}) error
 	FullyLoadTask(task *model.Task) (*model.Task, error)
 	SendMessage(taskID uint, message string, sender string) (*model.ChatMessage, error)

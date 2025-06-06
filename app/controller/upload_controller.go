@@ -4,25 +4,27 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
+	"strconv"
 
 	"github.com/Soup666/modelmaker/database"
 	models "github.com/Soup666/modelmaker/model"
+	"github.com/Soup666/modelmaker/services"
 
 	"github.com/gin-gonic/gin"
 )
 
 // AuthController is the controller for handling authentication requests
 type UploadController struct {
+	storageService services.StorageService
 }
 
-func NewUploadController() *UploadController {
-	return &UploadController{}
+func NewUploadController(storageService services.StorageService) *UploadController {
+	return &UploadController{
+		storageService: storageService,
+	}
 }
 
 func (c *UploadController) UploadFile(ctx *gin.Context) {
-
 	file, header, err := ctx.Request.FormFile("file")
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "File upload failed"})
@@ -30,16 +32,8 @@ func (c *UploadController) UploadFile(ctx *gin.Context) {
 	}
 	defer file.Close()
 
-	// Save the file
-	savePath := filepath.Join("uploads", header.Filename)
-	out, err := os.Create(savePath)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to save the file"})
-		return
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, file)
+	// Upload file to object storage
+	url, err := c.storageService.UploadFile(header, 0, "upload")
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to save the file"})
 		return
@@ -48,7 +42,7 @@ func (c *UploadController) UploadFile(ctx *gin.Context) {
 	// Save file metadata in the database
 	image := models.AppFile{
 		Filename: header.Filename,
-		Url:      fmt.Sprintf("/%s", savePath),
+		Url:      url,
 	}
 	database.DB.Create(&image)
 
@@ -59,31 +53,51 @@ func (c *UploadController) GetFile(ctx *gin.Context) {
 	taskId := ctx.Param("taskId")
 	filename := ctx.Param("filename")
 
-	// Construct the full file path
-	filePath := fmt.Sprintf("uploads/%s/%s", taskId, filename)
-
-	// Check if the file exists
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": "Image not found", "path": filePath})
+	// Convert taskId to uint
+	taskIdInt, err := strconv.ParseUint(taskId, 10, 32)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid task ID"})
 		return
 	}
 
-	// Serve the file
-	ctx.File(filePath)
+	// Get file from object storage
+	file, err := c.storageService.GetFile(fmt.Sprintf("uploads/%d/%s", taskIdInt, filename))
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Image not found"})
+		return
+	}
+	defer file.Close()
+
+	// Stream the file directly to the response writer
+	_, err = io.Copy(ctx.Writer, file)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to stream file"})
+		return
+	}
 }
 
 func (c *UploadController) GetObject(ctx *gin.Context) {
 	filename := ctx.Param("filename")
+	taskId := ctx.Param("taskID")
 
-	// Construct the full file path
-	filePath := filepath.Join("objects", filename)
-
-	// Check if the file exists
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": "Object not found"})
+	// Convert taskId to uint
+	taskIdInt, err := strconv.ParseUint(taskId, 10, 32)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid task ID"})
 		return
 	}
 
-	// Serve the file
-	ctx.File(filePath)
+	// Get file from object storage
+	file, err := c.storageService.GetFile(fmt.Sprintf("objects/%d/%s", taskIdInt, filename))
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Object not found"})
+		return
+	}
+	defer file.Close()
+
+	// Stream the file to the response
+	ctx.Stream(func(w io.Writer) bool {
+		_, err := io.Copy(w, file)
+		return err == nil
+	})
 }

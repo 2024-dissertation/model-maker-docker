@@ -18,8 +18,9 @@ func TestTaskService(t *testing.T) {
 
 	mockAppFileService := new(mocks.MockAppFileService)
 	mockNotificationService := new(mocks.MockNotificationService)
+	mockStorageService := new(mocks.MockStorageService)
 
-	taskService := services.NewTaskService(mockTaskRepository, mockAppFileService, mockChatRepository, mockNotificationService)
+	taskService := services.NewTaskService(mockTaskRepository, mockAppFileService, mockChatRepository, mockNotificationService, mockStorageService)
 
 	t.Run("CreateTask", func(t *testing.T) {
 

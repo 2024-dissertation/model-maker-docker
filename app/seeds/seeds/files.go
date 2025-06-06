@@ -104,7 +104,7 @@ func CreateDummyFiles(db *gorm.DB, taskId uint) ([]model.AppFile, error) {
 	for i, filename := range filenames {
 		files[i] = model.AppFile{
 			TaskId:   taskId,
-			Url:      fmt.Sprintf("/uploads/%d/%s", taskId, filename),
+			Url:      fmt.Sprintf("uploads/%d/%s", taskId, filename),
 			Filename: filename,
 			FileType: "upload",
 		}

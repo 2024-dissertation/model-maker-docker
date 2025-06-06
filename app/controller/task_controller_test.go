@@ -17,8 +17,9 @@ func TestTaskController(t *testing.T) {
 	mockTaskService := new(mocks.MockTaskService)
 	mockAppFileService := new(mocks.MockAppFileService)
 	mockVisionService := new(mocks.MockVisionService)
+	mockStorageService := new(mocks.MockStorageService)
 
-	taskController := controller.NewTaskController(mockTaskService, mockAppFileService, mockVisionService)
+	taskController := controller.NewTaskController(mockTaskService, mockAppFileService, mockVisionService, mockStorageService)
 
 	t.Run("GetUnarchivedTasks", func(t *testing.T) {
 		recorder, c := utils.SetupRecorder()
