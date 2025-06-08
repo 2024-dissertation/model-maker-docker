@@ -38,7 +38,12 @@ func (repo *TaskRepositoryImpl) GetArchivedTasks(userID uint) ([]*models.Task, e
 
 func (repo *TaskRepositoryImpl) GetTaskByID(taskID uint) (*models.Task, error) {
 	var task models.Task
-	if err := database.DB.Where("id = ?", taskID).Preload("ChatMessages").Preload("Images").First(&task).Error; err != nil {
+	if err := database.DB.Where("id = ?", taskID).
+		Preload("ChatMessages").
+		Preload("Images", "file_type = ?", "upload").
+		Preload("Mesh", "file_type = ?", "mesh").
+		Preload("Logs").
+		First(&task).Error; err != nil {
 		return nil, err
 	}
 	return &task, nil

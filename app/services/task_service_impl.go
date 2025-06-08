@@ -10,11 +10,12 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/2024-dissertation/openmvgo/pkg/mvgoutils"
 	"github.com/2024-dissertation/openmvgo/pkg/openmvg"
 	"github.com/2024-dissertation/openmvgo/pkg/openmvs"
-	"github.com/2024-dissertation/openmvgo/pkg/utils"
 	models "github.com/Soup666/modelmaker/model"
 	repositories "github.com/Soup666/modelmaker/repository"
+	"github.com/Soup666/modelmaker/utils"
 	"gorm.io/gorm"
 )
 
@@ -223,180 +224,217 @@ func (s *TaskServiceImpl) EnqueueJob(job TaskJob) bool {
 	}
 }
 
+func (s *TaskServiceImpl) initializeTask(task *models.Task) error {
+	task.Status = models.INPROGRESS
+	if err := s.UpdateTask(task); err != nil {
+		return fmt.Errorf("failed to update task: %v", err)
+	}
+
+	if err := s.UpdateMeta(task, "opensfm-process", 0.0); err != nil {
+		return fmt.Errorf("failed to update meta: %v", err)
+	}
+
+	s.notificationService.SendMessage(&models.Notification{
+		UserID:  task.UserId,
+		Message: "Scan started",
+		Title:   task.Title,
+	})
+
+	return nil
+}
+
+func (s *TaskServiceImpl) setupDirectories(timestamp int64) (string, string, string, error) {
+	buildDir, err := os.MkdirTemp("", fmt.Sprintf("%d-build", timestamp))
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to create build directory: %v", err)
+	}
+
+	outputDir, err := os.MkdirTemp("", fmt.Sprintf("%d-convert", timestamp))
+	if err != nil {
+		os.RemoveAll(buildDir)
+		return "", "", "", fmt.Errorf("failed to create output directory: %v", err)
+	}
+
+	inputDir, err := os.MkdirTemp("", fmt.Sprintf("%d-input", timestamp))
+	if err != nil {
+		os.RemoveAll(buildDir)
+		os.RemoveAll(outputDir)
+		return "", "", "", fmt.Errorf("failed to create input directory: %v", err)
+	}
+
+	return buildDir, outputDir, inputDir, nil
+}
+
+func (s *TaskServiceImpl) downloadTaskFiles(task *models.Task, inputDir string) error {
+	for _, taskFile := range task.Images {
+		fmt.Printf("Downloading file: %s to %s\n", taskFile.Url, filepath.Join(inputDir, taskFile.Filename))
+		file, err := s.storageService.GetFile(taskFile.Url)
+		if err != nil {
+			return fmt.Errorf("failed to get file: %v", err)
+		}
+		defer file.Close()
+
+		dstFile, err := os.Create(filepath.Join(inputDir, taskFile.Filename))
+		if err != nil {
+			return fmt.Errorf("failed to create file: %v", err)
+		}
+		defer dstFile.Close()
+
+		if _, err = io.Copy(dstFile, file); err != nil {
+			return fmt.Errorf("failed to copy file: %v", err)
+		}
+	}
+	return nil
+}
+
+func (s *TaskServiceImpl) runPipelines(utils mvgoutils.OpenmvgoUtilsInterface, inputDir, buildDir, outputDir string) error {
+	cameraDBFile := filepath.Join("bin", "sensor_width_camera_database.txt")
+
+	openmvgService := openmvg.NewOpenMVGService(
+		openmvg.NewOpenMVGConfig(
+			inputDir,
+			buildDir,
+			&cameraDBFile,
+		),
+		utils,
+	)
+
+	openmvsService := openmvs.NewOpenMVSService(
+		openmvs.NewOpenMVSConfig(
+			outputDir,
+			buildDir,
+			1,
+		),
+		utils,
+	)
+
+	openmvgService.PopulateTmpDir()
+	defer os.RemoveAll(openmvgService.Config.MatchesDir)
+	defer os.RemoveAll(openmvgService.Config.ReconstructionDir)
+
+	openmvgService.SfMSequentialPipeline()
+
+	// Run OpenMVS pipeline with panic recovery
+	if err := func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("OpenMVS pipeline failed: %v", r)
+			}
+		}()
+		openmvsService.RunPipeline()
+		return nil
+	}(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *TaskServiceImpl) convertAndStoreMesh(task *models.Task, outputDir string) error {
+	fileName := filepath.Join(outputDir, "scene_dense_mesh_refine_texture.obj")
+	convertedFileName := filepath.Join(outputDir, "scene_dense_mesh_refine_texture.glb")
+
+	cmd := exec.Command("blender", "-b", "-P", "./bin/convert_obj_to_glb.py", "--", fileName, convertedFileName)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("mesh conversion failed: %v", err)
+	}
+
+	if err := s.UpdateMeta(task, "log", "MeshConversion started"); err != nil {
+		log.Printf("Failed to update meta: log: %v\n", err)
+	}
+
+	mesh, err := s.appFileService.Save(&models.AppFile{
+		Url:      fileName + ".glb",
+		Filename: "final.glb",
+		TaskId:   task.ID,
+		FileType: "mesh",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to save mesh: %v", err)
+	}
+
+	file, err := os.Open(convertedFileName)
+	if err != nil {
+		return fmt.Errorf("failed to open converted file: %v", err)
+	}
+	defer file.Close()
+
+	meshUrl, err := s.storageService.UploadFromReader(file, task.ID, "final.glb", "mesh")
+	if err != nil {
+		return fmt.Errorf("failed to upload mesh: %v", err)
+	}
+
+	mesh.Url = meshUrl
+	task.Mesh = mesh
+	task.Completed = true
+	task.Status = models.SUCCESS
+
+	if err := s.UpdateTask(task); err != nil {
+		return fmt.Errorf("failed to update task: %v", err)
+	}
+
+	s.notificationService.SendMessage(&models.Notification{
+		UserID:  task.UserId,
+		Message: "Scan finished",
+		Title:   task.Title,
+	})
+
+	return nil
+}
+
+func (s *TaskServiceImpl) processTask(job TaskJob) {
+	fmt.Printf("Processing job: %+v\n", job)
+
+	task, err := s.taskRepo.GetTaskByID(job.ID)
+	if err != nil {
+		log.Printf("Failed to get task: %v\n", err)
+		return
+	}
+
+	utils.PrettyPrint(task)
+
+	if err := s.initializeTask(task); err != nil {
+		s.FailTask(task, err.Error())
+		return
+	}
+
+	timestamp := time.Now().Unix()
+
+	buildDir, outputDir, inputDir, err := s.setupDirectories(timestamp)
+	if err != nil {
+		s.FailTask(task, err.Error())
+		return
+	}
+	// defer os.RemoveAll(buildDir)
+	// defer os.RemoveAll(outputDir)
+	// defer os.RemoveAll(inputDir)
+
+	if err := s.downloadTaskFiles(task, inputDir); err != nil {
+		s.FailTask(task, err.Error())
+		return
+	}
+
+	if err := s.runPipelines(nil, inputDir, buildDir, outputDir); err != nil {
+		s.FailTask(task, err.Error())
+		return
+	}
+
+	if err := s.convertAndStoreMesh(task, outputDir); err != nil {
+		s.FailTask(task, err.Error())
+		return
+	}
+
+	fmt.Println("OpenMVGO pipeline completed successfully!")
+}
+
 func (s *TaskServiceImpl) StartWorker() {
 	go func() {
 		for job := range s.jobQueue {
-			go func() {
-				fmt.Printf("Processing job: %+v\n", job)
-
-				task, err := s.taskRepo.GetTaskByID(job.ID)
-				if err != nil {
-					return
-				}
-
-				// Set task to in progress
-				task.Status = models.INPROGRESS
-				if err := s.UpdateTask(task); err != nil {
-					s.FailTask(task, fmt.Sprintf("Failed to update task: %v\n", err))
-					return
-				}
-
-				// Start processing
-				if err := s.UpdateMeta(task, "opensfm-process", 0.0); err != nil {
-					log.Printf("Failed to update meta: %f: %v\n", 0.0, err)
-					s.FailTask(task, fmt.Sprintf("Failed to update meta: %f: %v\n", 0.0, err))
-					return
-				}
-
-				// Send notification
-				s.notificationService.SendMessage(&models.Notification{
-					UserID:  task.UserId,
-					Message: "Scan started",
-					Title:   task.Title,
-				})
-
-				// Setup Utils
-				utils := utils.NewUtils()
-
-				timestamp := time.Now().Unix()
-
-				// Middle directory creation
-				buildDir, err := os.MkdirTemp("", fmt.Sprintf("%d-build", timestamp))
-				utils.Check(err)
-
-				// Final file conversion directory
-				outputDir, err := os.MkdirTemp("", fmt.Sprintf("%d-convert", timestamp))
-				utils.Check(err)
-
-				// Remove directories
-				defer os.RemoveAll(buildDir)
-				defer os.RemoveAll(outputDir)
-
-				inputDir, err := os.MkdirTemp("", fmt.Sprintf("%d-input", timestamp))
-				utils.Check(err)
-
-				defer os.RemoveAll(inputDir)
-
-				cameraDBFile := filepath.Join("bin", "sensor_width_camera_database.txt")
-
-				// Download input files into tmp directory. Paths are from aws s3 bucket.
-				for _, taskFile := range task.Images {
-					fmt.Println("Downloading file: ", taskFile.Url)
-					file, err := s.storageService.GetFile(taskFile.Url)
-					if err != nil {
-						s.FailTask(task, fmt.Sprintf("Failed to get file: %v", err))
-						return
-					}
-					defer file.Close()
-					dstFile, err := os.Create(filepath.Join(inputDir, taskFile.Filename))
-					if err != nil {
-						s.FailTask(task, fmt.Sprintf("Failed to create file: %v", err))
-						return
-					}
-					defer dstFile.Close()
-					_, err = io.Copy(dstFile, file)
-					if err != nil {
-						s.FailTask(task, fmt.Sprintf("Failed to copy file: %v", err))
-						return
-					}
-				}
-
-				// Configure openmvg service
-				openmvgService := openmvg.NewOpenMVGService(
-					openmvg.NewOpenMVGConfig(
-						inputDir,
-						buildDir,
-						&cameraDBFile,
-					),
-					utils,
-				)
-
-				// Configure openmvs service
-				openmvsService := openmvs.NewOpenMVSService(
-					openmvs.NewOpenMVSConfig(
-						outputDir,
-						buildDir,
-						1,
-					),
-					utils,
-				)
-
-				// Populate and Run Pipelines
-				openmvgService.PopulateTmpDir()
-				defer os.RemoveAll(openmvgService.Config.MatchesDir)
-				defer os.RemoveAll(openmvgService.Config.ReconstructionDir)
-
-				openmvgService.SfMSequentialPipeline()
-
-				// Add try-catch equivalent
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							s.FailTask(task, fmt.Sprintf("OpenMVS pipeline failed: %v", r))
-							return
-						}
-					}()
-					openmvsService.RunPipeline()
-				}()
-
-				// Convert to glb
-				fileName := filepath.Join(outputDir, "final.obj")
-				convertedFileName := filepath.Join(outputDir, "final.glb")
-				fmt.Println("blender", "-b", "-P", "./bin/convert_obj_to_glb.py", "--", fileName, convertedFileName)
-				cmd := exec.Command("blender", "-b", "-P", "./bin/convert_obj_to_glb.py", "--", fileName, convertedFileName)
-
-				if err := cmd.Run(); err != nil {
-					s.FailTask(task, fmt.Sprintf("MeshConversion failed: %v", err))
-					return
-				}
-
-				if err := s.UpdateMeta(task, "log", "MeshConversion started"); err != nil {
-					log.Printf("Failed to update meta: log: %v\n", err)
-					return
-				}
-
-				// Save mesh
-				mesh, err := s.appFileService.Save(&models.AppFile{
-					Url:      fileName + ".glb",
-					Filename: "final.glb",
-					TaskId:   task.ID,
-					FileType: "mesh",
-				})
-
-				if err != nil {
-					s.FailTask(task, fmt.Sprintf("Failed to Save mesh: %v", err))
-					return
-				}
-
-				// Upload GLB file to storage
-				file, err := os.Open(convertedFileName)
-				if err != nil {
-					s.FailTask(task, fmt.Sprintf("Failed to open converted file: %v", err))
-					return
-				}
-				defer file.Close()
-				s.storageService.UploadFromReader(file, task.ID, "final.glb", "mesh")
-
-				// Update task
-				task.Mesh = mesh
-				task.Completed = true
-				task.Status = models.SUCCESS
-
-				if err := s.UpdateTask(task); err != nil {
-					s.FailTask(task, fmt.Sprintf("Failed to update task: %v", err))
-					return
-				}
-
-				// Send notification
-				s.notificationService.SendMessage(&models.Notification{
-					UserID:  task.UserId,
-					Message: "Scan finished",
-					Title:   task.Title,
-				})
-
-				// Complete
-				fmt.Println("OpenMVGO pipeline completed successfully!")
-			}()
+			go s.processTask(job)
 		}
 	}()
 }

@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/Soup666/modelmaker/controller"
 	db "github.com/Soup666/modelmaker/database"
@@ -17,7 +19,60 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 )
 
+func printEnvironmentBanner() {
+	appEnv := os.Getenv("APP_ENV")
+	if appEnv == "" {
+		appEnv = "production"
+	}
+
+	// ANSI color codes
+	const (
+		colorRed     = "\033[1;31m" // Bold Red
+		colorGreen   = "\033[1;32m" // Bold Green
+		colorYellow  = "\033[1;33m" // Bold Yellow
+		colorBlue    = "\033[1;34m" // Bold Blue
+		colorMagenta = "\033[1;35m" // Bold Magenta
+		colorCyan    = "\033[1;36m" // Bold Cyan
+		colorReset   = "\033[0m"
+	)
+
+	var bannerColor, envText string
+	switch appEnv {
+	case "dev":
+		bannerColor = colorYellow
+		envText = "DEVELOPMENT"
+	case "staging":
+		bannerColor = colorCyan
+		envText = "STAGING"
+	case "test":
+		bannerColor = colorMagenta
+		envText = "TEST"
+	case "production":
+		bannerColor = colorGreen
+		envText = "PRODUCTION"
+	default:
+		bannerColor = colorRed
+		envText = strings.ToUpper(appEnv)
+	}
+
+	banner := []string{
+		"",
+		"╔════════════════════════════════════════╗",
+		"║             MODEL MAKER                ║",
+		fmt.Sprintf("║         Environment: %-16s  ║", envText),
+		"╚════════════════════════════════════════╝",
+		"",
+	}
+
+	for _, line := range banner {
+		fmt.Printf("%s%s%s\n", bannerColor, line, colorReset)
+	}
+}
+
 func main() {
+	// Print environment banner
+	printEnvironmentBanner()
+
 	// Set up the database connection
 	log.Println("Connecting to database...")
 

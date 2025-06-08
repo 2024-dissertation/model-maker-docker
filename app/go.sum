@@ -43,8 +43,8 @@ cloud.google.com/go/trace v1.11.6/go.mod h1:GA855OeDEBiBMzcckLPE2kDunIpC72N+Pq8W
 dmitri.shuralyov.com/gpu/mtl v0.0.0-20190408044501-666a987793e9/go.mod h1:H6x//7gZCb22OMCxBHrMx7a5I7Hp++hsVxbQ4BYO7hU=
 firebase.google.com/go/v4 v4.15.2 h1:KJtV4rAfO2CVCp40hBfVk+mqUqg7+jQKx7yOgFDnXBg=
 firebase.google.com/go/v4 v4.15.2/go.mod h1:qkD/HtSumrPMTLs0ahQrje5gTw2WKFKrzVFoqy4SbKA=
-github.com/2024-dissertation/openmvgo v1.0.5 h1:juKy2McCKfqj7eZSLbKhxk1UQqDxu+6JdwB/4hn41fQ=
-github.com/2024-dissertation/openmvgo v1.0.5/go.mod h1:J/Jz76PZhkdjLc7+p3mp7BnpkxbWWVeKQDM5SlvpcCo=
+github.com/2024-dissertation/openmvgo v1.0.8 h1:HW0NZS8DtA+QtVBDSQxmPFArBeN+ZVfNvBzLIKOY9io=
+github.com/2024-dissertation/openmvgo v1.0.8/go.mod h1:J/Jz76PZhkdjLc7+p3mp7BnpkxbWWVeKQDM5SlvpcCo=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.27.0 h1:ErKg/3iS1AKcTkf3yixlZ54f9U1rljCkQyEXWUnIUxc=

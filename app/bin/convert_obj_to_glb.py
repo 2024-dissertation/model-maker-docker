@@ -16,9 +16,10 @@ def convert_obj_to_glb(input_path, output_path):
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
 
-    # Import obj file
-    # bpy.ops.wm.obj_import
-    bpy.ops.wm.obj_import(filepath=input_path)
+    # Import obj file with textures
+    bpy.ops.wm.obj_import(
+        filepath=input_path,
+    )
 
     for obj in bpy.context.scene.objects:
         obj.rotation_euler[1] += radians(90)  # 90 degrees in radians
@@ -46,12 +47,19 @@ def convert_obj_to_glb(input_path, output_path):
                 bpy.context.view_layer.objects.active = obj
                 bpy.ops.object.modifier_apply(modifier="Decimate")
 
-    # Export as GLB
+    # Export as GLB with textures
     bpy.ops.export_scene.gltf(
         filepath=output_path,
         export_format="GLB",
         use_selection=True,
         export_draco_mesh_compression_enable=True,  # Enable Draco compression
+        export_materials="EXPORT",  # Export materials
+        export_texcoords=True,  # Export texture coordinates
+        export_normals=True,  # Export normals
+        export_tangents=True,  # Export tangents for normal maps
+        export_apply=True,  # Apply modifiers
+        export_image_format="AUTO",  # Let Blender choose the best format
+        export_texture_dir="",  # Embed textures in GLB
     )
 
 
@@ -73,3 +81,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error during conversion: {str(e)}")
         sys.exit(1)
+

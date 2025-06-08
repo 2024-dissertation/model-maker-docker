@@ -4,7 +4,7 @@ go 1.24.3
 
 require (
 	firebase.google.com/go/v4 v4.15.2
-	github.com/2024-dissertation/openmvgo v1.0.5
+	github.com/2024-dissertation/openmvgo v1.0.8
 	github.com/appleboy/go-fcm v1.2.5
 	github.com/aws/aws-sdk-go-v2 v1.36.3
 	github.com/aws/aws-sdk-go-v2/config v1.29.14

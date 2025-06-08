@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -19,6 +20,7 @@ type KatapultStorageService struct {
 	bucketName string
 	region     string
 	endpoint   string
+	isDev      bool
 }
 
 func NewKatapultStorageService() *KatapultStorageService {
@@ -27,6 +29,7 @@ func NewKatapultStorageService() *KatapultStorageService {
 	endpoint := os.Getenv("KATAPULT_ENDPOINT")
 	accessKey := os.Getenv("KATAPULT_ACCESS_KEY")
 	secretKey := os.Getenv("KATAPULT_SECRET_KEY")
+	isDev := os.Getenv("APP_ENV") == "dev"
 
 	// Configure AWS SDK
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
@@ -47,7 +50,29 @@ func NewKatapultStorageService() *KatapultStorageService {
 		bucketName: bucketName,
 		region:     region,
 		endpoint:   endpoint,
+		isDev:      isDev,
 	}
+}
+
+func (s *KatapultStorageService) getObjectKey(taskID uint, filename string, fileType string) string {
+	var path string
+	if fileType == "mesh" {
+		path = fmt.Sprintf("objects/%d/%s", taskID, filename)
+	} else {
+		path = fmt.Sprintf("uploads/%d/%s", taskID, filename)
+	}
+
+	if s.isDev {
+		return "development/" + path
+	}
+	return path
+}
+
+func (s *KatapultStorageService) getFilePath(filepath string) string {
+	if s.isDev && !strings.HasPrefix(filepath, "development/") {
+		return "development/" + filepath
+	}
+	return filepath
 }
 
 func (s *KatapultStorageService) UploadFile(file *multipart.FileHeader, taskID uint, fileType string) (string, error) {
@@ -86,7 +111,7 @@ func (s *KatapultStorageService) GetFile(filepath string) (io.ReadCloser, error)
 	// Get object from S3
 	result, err := s.client.GetObject(context.TODO(), &s3.GetObjectInput{
 		Bucket: aws.String(s.bucketName),
-		Key:    aws.String(filepath),
+		Key:    aws.String(s.getFilePath(filepath)),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file: %w", err)
@@ -108,11 +133,4 @@ func (s *KatapultStorageService) DeleteFile(taskID uint, filename string) error 
 	}
 
 	return nil
-}
-
-func (s *KatapultStorageService) getObjectKey(taskID uint, filename string, fileType string) string {
-	if fileType == "mesh" {
-		return fmt.Sprintf("objects/%d/%s", taskID, filename)
-	}
-	return fmt.Sprintf("uploads/%d/%s", taskID, filename)
 }
