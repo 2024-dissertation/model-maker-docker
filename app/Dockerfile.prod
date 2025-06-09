@@ -43,7 +43,7 @@ RUN git clone --recursive --depth=1 https://github.com/openMVG/openMVG.git /open
     -DOpenMVG_BUILD_EXAMPLES=OFF \
     -DOpenMVG_USE_RERUN=OFF \
     /openMVG/src && \
-    make && \
+    make -j$(nproc) && \
     make install
 
 # Build OpenMVS
@@ -56,7 +56,7 @@ RUN git clone --branch develop --depth=1 https://github.com/cdcseacave/openMVS.g
     -DOpenMVG_DIR=/usr/local/lib/cmake/openmvg \
     -DVCG_ROOT=/vcglib \
     /openMVS && \
-    make && \
+    make -j$(nproc) && \
     make install
 
 # ------------------------------
