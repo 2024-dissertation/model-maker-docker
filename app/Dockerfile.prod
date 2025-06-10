@@ -90,36 +90,34 @@ FROM linuxserver/blender:4.4.3 AS blender_builder
 # ------------------------------
 # Stage 4: Production Runtime
 # ------------------------------
-FROM ubuntu:22.04 AS final
-
-RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4
-
-ENV TZ=UTC
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
-
-RUN sed -i'' 's/archive\.ubuntu\.com/us\.archive\.ubuntu\.com/' /etc/apt/sources.list
+FROM alpine:3.22 AS final
 
 # Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser -s /bin/false appuser
+RUN addgroup -S appuser && adduser -S -G appuser -s /sbin/nologin appuser
 
-ENV DEBIAN_FRONTEND=noninteractive
-ARG DEBIAN_FRONTEND=noninteractive
-
-# Install only runtime dependencies
-# Seperate for cache issues
-RUN apt-get -y update 
-RUN apt-get install -y --no-install-recommends \
-    libcgal-qt5-dev libceres2 libboost-system1.74.0 libboost-filesystem1.74.0 \
-    libboost-program-options1.74.0 libboost-serialization1.74.0 \
-    libopencv-core4.5d libopencv-imgproc4.5d libopencv-imgcodecs4.5d \
-    libjpeg8 libpng16-16 libtiff5 libglu1-mesa libglew2.2 \
-    libglfw3 libgomp1 ca-certificates curl wget libboost-all-dev libopencv-dev \
-    xorg && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+# Install runtime dependencies
+RUN apk add --no-cache \
+    boost-dev \
+    cgal \
+    # ceres \
+    curl \
+    glew \
+    glfw \
+    glu \
+    jpeg \
+    libgomp \
+    libpng \
+    libstdc++ \
+    mesa \
+    opencv \
+    tiff \
+    tzdata \
+    wget 
+# xorg-server
 
 # Copy OpenMVG/OpenMVS binaries and libraries
-COPY --from=cv_builder /usr/local/bin/ /usr/local/bin/
-COPY --from=cv_builder /usr/local/lib/ /usr/local/lib/
+COPY --from=cv_builder /usr/local/bin/open* /usr/local/bin/
+COPY --from=cv_builder /usr/local/lib/open* /usr/local/lib/
 
 # Copy Blender (only essential parts)
 COPY --from=blender_builder /blender /opt/blender
@@ -134,7 +132,7 @@ WORKDIR /app
 COPY ./bin /app/bin
 
 # Update library cache
-RUN ldconfig
+RUN ldconfig || true
 
 # Create app directory with proper permissions
 RUN mkdir -p /app /app/data /app/logs && \
@@ -142,19 +140,19 @@ RUN mkdir -p /app /app/data /app/logs && \
     chown -R appuser:appuser /usr/local/bin 
 
 # Copy entrypoint script
-COPY --chown=appuser:appuser entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY --chown=appuser:appuser ./entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Set environment variables
-ENV PATH="/usr/local/bin:/usr/local/bin/OpenMVS:$PATH" \
+ENV PATH="/usr/local/bin:/usr/local/bin/OpenMVS:/opt/blender:$PATH" \
     PORT=3333 \
     GIN_MODE=release \
     LOG_LEVEL=info \
-    BLENDER_PATH=/usr/local/bin/blender
+    BLENDER_PATH=/usr/local/bin/blender \
+    TZ=UTC
 
 # Switch to non-root user
 USER appuser
-
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
@@ -164,5 +162,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 EXPOSE 3333
 
 # Use proper entrypoint
-ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["server"]
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/usr/local/bin/server"]
